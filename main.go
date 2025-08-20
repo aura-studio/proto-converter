@@ -10,23 +10,34 @@ import (
 )
 
 func main() {
-	// 仅保留配置文件参数，支持 -c 与 --config
-	configPath := flag.String("c", filepath.FromSlash("external/proto/template.proto.yaml"), "YAML 配置文件路径（默认使用模板 template.proto.yaml）")
-	// 兼容长名 --config
+	// 参数：配置文件(-c/--config) 与 工作目录(-w/--workdir)
+	configPath := flag.String("c", filepath.FromSlash("template.proto.yaml"), "YAML 配置文件路径（相对运行目录）")
 	flag.StringVar(configPath, "config", *configPath, "YAML 配置文件路径（同 -c）")
+	workdir := flag.String("w", ".", "工作目录（相对运行目录），YAML 中的路径以此为基准")
+	flag.StringVar(workdir, "workdir", *workdir, "工作目录（同 -w）")
 	flag.Parse()
 
-	// 保持以仓库根为工作目录（与原有行为一致）
-	if root, err := findRepoRoot(); err == nil {
-		_ = os.Chdir(root)
+	// 记录启动时的运行目录，用于正确解析相对传参
+	startWD, _ := os.Getwd()
+	// 将 config 解析为基于启动目录的绝对路径（不受后续 chdir 影响）
+	configAbs := *configPath
+	if !filepath.IsAbs(configAbs) {
+		configAbs = filepath.Clean(filepath.Join(startWD, configAbs))
+	}
+	// 解析并切换到工作目录，使 YAML 内的相对路径以工作目录为基准
+	workAbs := *workdir
+	if !filepath.IsAbs(workAbs) {
+		workAbs = filepath.Clean(filepath.Join(startWD, workAbs))
+	}
+	if err := os.Chdir(workAbs); err != nil {
+		fmt.Fprintf(os.Stderr, "无法进入工作目录: %s (%v)\n", workAbs, err)
+		return
 	}
 
 	// 构造并运行导出器（其余参数从配置文件中读取）
-	exp := &converter.Exporter{
-		// 其他参数从配置文件中读取
-	}
+	exp := &converter.Exporter{}
 
-	exp.ConfigPath = *configPath
+	exp.ConfigPath = configAbs
 	if err := exp.Run(); err != nil {
 		// 标准错误输出并以非零退出
 		fmt.Printf("错误: %v\n", err)
@@ -34,31 +45,4 @@ func main() {
 	}
 
 	fmt.Println("完成导出。")
-}
-
-// 其余组件（SeedLoader、DepResolver、Pruner 等）在同目录的独立文件中实现。
-
-// findRepoRoot: 尝试自当前目录向上查找包含 external 与 go.mod 的目录
-func findRepoRoot() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	cur := wd
-	for i := 0; i < 6; i++ {
-		if exists(filepath.Join(cur, "external")) && exists(filepath.Join(cur, "go.mod")) {
-			return cur, nil
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			break
-		}
-		cur = parent
-	}
-	return wd, nil
-}
-
-func exists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
