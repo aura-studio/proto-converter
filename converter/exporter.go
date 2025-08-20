@@ -3,51 +3,62 @@ package converter
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
-// Exporter 按配置执行导出流程。
+// Exporter loads config, resolves dependencies, prunes, and writes proto outputs.
 type Exporter struct {
-	// inputs
-	ConfigPath   string
-	ProtogenPath string
-	OutDir       string
-	ProtoOutDir  string
-	Namespace    string
-	Prune        bool
-	DryRun       bool
+	ConfigPath    string
+	ExportDir     string
+	ImportDir     string
+	Namespace     string
+	Language      string
+	FileNameCase  string
+	FieldNameCase string
+	Prune         bool
+	DryRun        bool
 }
 
-// Run 执行导出流程（基于 -config 配置）。
+// Run executes export with the current Exporter settings.
 func (e *Exporter) Run() error {
 	cfg, seeds, seedKeep, typeFieldKeep, err := readProtoConfig(e.ConfigPath)
 	if err != nil {
 		return err
 	}
-	// 将 YAML 中的 cli 字段填充到 Exporter（提供默认值）
-	if cfg.Protogen != "" {
-		e.ProtogenPath = cfg.Protogen
-	} else if e.ProtogenPath == "" {
-		e.ProtogenPath = filepath.FromSlash("bin/protogen/protogen.exe")
+	if cfg.ExportDir != "" {
+		e.ExportDir = filepath.FromSlash(cfg.ExportDir)
+	} else if e.ExportDir == "" {
+		e.ExportDir = "."
 	}
-	if cfg.OutDir != "" {
-		e.OutDir = filepath.FromSlash(cfg.OutDir)
-	} else if e.OutDir == "" {
-		e.OutDir = filepath.FromSlash("external/CSharpExport/Proto/Gen")
-	}
-	if cfg.ProtoOut != "" {
-		e.ProtoOutDir = filepath.FromSlash(cfg.ProtoOut)
-	} else if e.ProtoOutDir == "" {
-		e.ProtoOutDir = filepath.FromSlash("external/CSharpExport/Proto/Schema")
+	if cfg.ImportDir != "" {
+		e.ImportDir = filepath.FromSlash(cfg.ImportDir)
 	}
 	if cfg.Namespace != "" {
 		e.Namespace = cfg.Namespace
-	} else if e.Namespace == "" {
-		e.Namespace = "Export.Proto"
+	}
+	if cfg.Language != "" {
+		e.Language = strings.ToLower(cfg.Language)
+	}
+	if cfg.FileNameCase != "" {
+		e.FileNameCase = strings.ToLower(cfg.FileNameCase)
+	} else if e.FileNameCase == "" {
+		e.FileNameCase = "camel"
+	}
+	if cfg.FieldNameCase != "" {
+		e.FieldNameCase = strings.ToLower(cfg.FieldNameCase)
+	} else if e.FieldNameCase == "" {
+		e.FieldNameCase = "camel"
+	}
+	switch e.Language {
+	case "csharp", "cs", "c#", "golang", "go", "lua":
+	case "":
+		return fmt.Errorf("配置缺失: language 必填。可选值: csharp/cs/c#、golang/go、lua")
+	default:
+		return fmt.Errorf("不支持的 language: %s (支持: csharp/cs/c#、golang/go、lua)", e.Language)
 	}
 	if cfg.Prune != nil {
 		e.Prune = *cfg.Prune
 	} else {
-		// 默认为开启裁剪
 		if !e.Prune {
 			e.Prune = true
 		}
@@ -55,50 +66,24 @@ func (e *Exporter) Run() error {
 	if cfg.DryRun != nil {
 		e.DryRun = *cfg.DryRun
 	}
-	if !exists(e.ProtogenPath) {
-		return fmt.Errorf("protogen 不存在: %s", e.ProtogenPath)
-	}
-	normalized, err := (DepResolver{}).CollectWithImports(seeds)
+	normalized, resolvedSeeds, err := (DepResolver{}).CollectWithImportsAndRoots(seeds, e.ImportDir)
 	if err != nil {
 		return err
 	}
-
-	if err := ensureDir(e.OutDir, e.DryRun); err != nil {
+	if err := ensureDir(e.ExportDir, e.DryRun); err != nil {
 		return err
 	}
-	if err := ensureDir(e.ProtoOutDir, e.DryRun); err != nil {
-		return err
+	if !e.Prune {
+		seeds = normalized
+		seedKeep = nil
 	}
-
-	var genTargets []protoItem
+	useSeeds := seeds
 	if e.Prune {
-		tempRoot, targets, err := (Pruner{}).BuildPrunedTempProtos(normalized, seeds, seedKeep, typeFieldKeep, e.ProtoOutDir, e.Namespace, e.DryRun)
-		if err != nil {
-			return err
-		}
-		gen := Generator{ProtogenPath: e.ProtogenPath, OutDir: e.OutDir, DryRun: e.DryRun}
-		if err := gen.GenFromTemp(tempRoot, targets); err != nil {
-			return err
-		}
-		genTargets = targets
-	} else {
-		gen := Generator{ProtogenPath: e.ProtogenPath, OutDir: e.OutDir, DryRun: e.DryRun}
-		for _, it := range normalized {
-			if err := gen.GenDirect(it, normalized); err != nil {
-				return err
-			}
-		}
-		genTargets = normalized
+		useSeeds = resolvedSeeds
 	}
 
-	expected := make(map[string]struct{}, len(genTargets))
-	for _, it := range genTargets {
-		name := snakeToCamel(trimExt(it.Base)) + ".cs"
-		expected[name] = struct{}{}
+	if _, _, err := (Pruner{}).BuildPrunedTempProtos(normalized, useSeeds, seedKeep, typeFieldKeep, e.ExportDir, e.Namespace, e.Language, e.FileNameCase, e.FieldNameCase, e.DryRun); err != nil {
+		return fmt.Errorf("写出转换后的 proto 失败: %w", err)
 	}
-	cl := Cleaner{OutDir: e.OutDir, DryRun: e.DryRun}
-	if err := cl.RenameToCamelCase(); err != nil {
-		return err
-	}
-	return cl.DeleteExtras(expected)
+	return nil
 }

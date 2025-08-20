@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// Pruner 负责解析 proto、计算依赖闭包，并将裁剪/重写后的临时 proto 写入目标目录。
+// Pruner selects referenced definitions and writes sanitized proto outputs.
 type Pruner struct{}
 
-// PFile 表示解析后的 proto 文件结构。
+// PFile represents a parsed proto file.
 type PFile struct {
 	Path    string
 	Package string
@@ -19,7 +19,7 @@ type PFile struct {
 	Defs    []TopDef
 }
 
-// TopDef 表示顶层定义（message/enum）。
+// TopDef is a top-level definition block (message/enum) with references.
 type TopDef struct {
 	Kind string
 	Name string
@@ -27,12 +27,13 @@ type TopDef struct {
 	Refs []string
 }
 
+// BuildPrunedTempProtos prunes and writes proto files based on seeds and keep rules.
 func (Pruner) BuildPrunedTempProtos(
 	all []protoItem,
 	seeds []protoItem,
 	seedKeep map[string]map[string]struct{},
 	typeFieldKeep map[string]map[string]struct{},
-	outDir, ns string,
+	outDir, ns, lang, fileNameCase, fieldNameCase string,
 	dry bool,
 ) (string, []protoItem, error) {
 	parsed := map[string]*PFile{}
@@ -86,7 +87,6 @@ func (Pruner) BuildPrunedTempProtos(
 	}
 	for filePath, pf := range parsed {
 		if _, isSeed := seedSet[filePath]; isSeed {
-			// 若配置中出现了 keep（即便为空），严格按 keep 选择；未出现 keep 才默认全选
 			if keepSet, ok := seedKeep[filePath]; ok {
 				for i := range pf.Defs {
 					if _, ok := keepSet[pf.Defs[i].Name]; ok {
@@ -132,7 +132,6 @@ func (Pruner) BuildPrunedTempProtos(
 		parts := strings.Split(t, ".")
 		if len(parts) == 1 {
 			if curPkg == "" {
-				// 没有包时无法构造 fqn
 				return "", false
 			}
 			fqn := curPkg + "." + parts[0]
@@ -153,7 +152,6 @@ func (Pruner) BuildPrunedTempProtos(
 		return "", false
 	}
 
-	// 解析到具体定义：优先同文件简单名；其次基于包解析；最后全局唯一简单名回退
 	resolveDef := func(curFile, curPkg, token string) (defRef, bool) {
 		t := strings.TrimPrefix(strings.TrimSpace(token), ".")
 		if t == "" {
@@ -166,7 +164,6 @@ func (Pruner) BuildPrunedTempProtos(
 			return defRef{}, false
 		}
 		base := baseName(t)
-		// 1) 同文件优先
 		if pf := parsed[curFile]; pf != nil {
 			for i := range pf.Defs {
 				if pf.Defs[i].Name == base {
@@ -174,11 +171,9 @@ func (Pruner) BuildPrunedTempProtos(
 				}
 			}
 		}
-		// 2) 包解析
 		if fqn, ok := resolveTop(curPkg, t); ok {
 			return index[fqn], true
 		}
-		// 3) 全局简单名唯一回退
 		if lst, ok := simpleIndex[base]; ok && len(lst) == 1 {
 			return lst[0], true
 		}
@@ -189,7 +184,6 @@ func (Pruner) BuildPrunedTempProtos(
 		cur := queue[0]
 		queue = queue[1:]
 		curPkg := parsed[cur.File].Package
-		// 基于“裁剪后的定义文本”收集依赖引用，避免因被裁掉的字段导致的误导入
 		srcData, err := os.ReadFile(cur.File)
 		if err != nil {
 			return "", nil, err
@@ -215,8 +209,7 @@ func (Pruner) BuildPrunedTempProtos(
 	var targets []protoItem
 	for filePath, pf := range parsed {
 		base := filepath.Base(filePath)
-		camelBase := snakeToCamel(trimExt(base)) + ".proto"
-		rel := camelBase
+		rel := formatProtoFileName(trimExt(base), fileNameCase)
 		dstPath := filepath.Join(tempRoot, rel)
 		if dry {
 			fmt.Printf("[dry] mkdir -p %s\n", filepath.Dir(dstPath))
@@ -235,15 +228,21 @@ func (Pruner) BuildPrunedTempProtos(
 				} else {
 					b.WriteString("syntax = \"proto3\";\n\n")
 				}
-				b.WriteString("option csharp_namespace = \"" + ns + "\";\n")
-				if err := os.WriteFile(dstPath, []byte(b.String()), 0o644); err != nil {
+				if pf.Package != "" {
+					b.WriteString("package " + pf.Package + ";\n\n")
+				}
+				if ns != "" {
+					writeLangNamespaceOption(&b, lang, ns)
+					b.WriteString("\n\n")
+				}
+				outTxt := sanitizeProtoOutput(b.String())
+				if err := os.WriteFile(dstPath, []byte(outTxt), 0o644); err != nil {
 					return "", nil, err
 				}
 			}
 			continue
 		}
 
-		// 首先按选择的定义生成“裁剪后”的定义文本，随后基于该结果计算依赖导入
 		prunedDefs := []string{}
 		if dry {
 			fmt.Printf("[dry] write pruned %s\n", shortPath(dstPath))
@@ -260,17 +259,18 @@ func (Pruner) BuildPrunedTempProtos(
 				if keepSet := resolveTypeKeepSet(typeFieldKeep, pf.Package, d.Name); keepSet != nil && strings.TrimSpace(d.Kind) == "message" {
 					def = pruneMessageFields(def, keepSet)
 				}
-				def = stripPackageQualifiers(def, pkgs)
+				def = stripSelfPackageQualifiers(def, pf.Package)
+				if strings.TrimSpace(d.Kind) == "message" {
+					def = transformFieldNames(def, fieldNameCase)
+				}
 				prunedDefs = append(prunedDefs, def)
 			}
-			// 基于裁剪后的定义文本收集“实际仍在使用”的基本类型名集合
 			presentBase := map[string]struct{}{}
 			for _, def := range prunedDefs {
 				for _, tok := range collectTypeTokens(def) {
 					presentBase[baseName(tok)] = struct{}{}
 				}
 			}
-			// 与原始解析得到的引用列表（包含包前缀）做交集，用以精确计算导入
 			crossImports := map[string]struct{}{}
 			googleImports := map[string]struct{}{}
 			for i := range pf.Defs {
@@ -301,9 +301,12 @@ func (Pruner) BuildPrunedTempProtos(
 			} else {
 				b.WriteString("syntax = \"proto3\";\n\n")
 			}
+			if pf.Package != "" {
+				b.WriteString("package " + pf.Package + ";\n\n")
+			}
 			for imp := range crossImports {
-				camelImp := snakeToCamel(trimExt(filepath.Base(imp))) + ".proto"
-				b.WriteString("import \"" + camelImp + "\";\n")
+				impName := formatProtoFileName(trimExt(filepath.Base(imp)), fileNameCase)
+				b.WriteString("import \"" + impName + "\";\n")
 			}
 			for imp := range googleImports {
 				b.WriteString("import \"" + imp + "\";\n")
@@ -311,12 +314,16 @@ func (Pruner) BuildPrunedTempProtos(
 			if len(crossImports) > 0 || len(googleImports) > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString("option csharp_namespace = \"" + ns + "\";\n\n")
+			if ns != "" {
+				writeLangNamespaceOption(&b, lang, ns)
+				b.WriteString("\n\n")
+			}
 			for _, def := range prunedDefs {
 				b.WriteString(def)
 				b.WriteString("\n\n")
 			}
-			if err := os.WriteFile(dstPath, []byte(b.String()), 0o644); err != nil {
+			outTxt := sanitizeProtoOutput(b.String())
+			if err := os.WriteFile(dstPath, []byte(outTxt), 0o644); err != nil {
 				return "", nil, err
 			}
 		}
@@ -326,7 +333,177 @@ func (Pruner) BuildPrunedTempProtos(
 	return tempRoot, targets, nil
 }
 
-// 解析出类型保留字段集合（支持短名与包名.短名）
+func writeLangNamespaceOption(b *strings.Builder, lang, ns string) {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "csharp", "cs", "c#":
+		b.WriteString("option csharp_namespace = \"" + ns + "\";")
+	case "golang", "go":
+		b.WriteString("option go_package = \"" + ns + "\";")
+	case "lua":
+
+	default:
+		b.WriteString("option csharp_namespace = \"" + ns + "\";")
+	}
+}
+
+func sanitizeProtoOutput(s string) string {
+	noCmt := stripCommentsOut(s)
+	noRes := dropReservedLines(noCmt)
+	compact := normalizeBlankLines(noRes)
+	return tightenBlockBlankLines(compact)
+}
+
+func stripCommentsOut(s string) string {
+	var out strings.Builder
+	n := len(s)
+	i := 0
+	inStr := false
+	for i < n {
+		c := s[i]
+		if inStr {
+			out.WriteByte(c)
+			if c == '\\' && i+1 < n {
+				out.WriteByte(s[i+1])
+				i += 2
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			i++
+			continue
+		}
+		if c == '"' {
+			inStr = true
+			out.WriteByte(c)
+			i++
+			continue
+		}
+		if c == '/' && i+1 < n {
+			d := s[i+1]
+			if d == '/' {
+				i += 2
+				for i < n && s[i] != '\n' {
+					i++
+				}
+				continue
+			}
+			if d == '*' {
+				i += 2
+				for i+1 < n {
+					if s[i] == '*' && s[i+1] == '/' {
+						i += 2
+						break
+					}
+					i++
+				}
+				continue
+			}
+		}
+		out.WriteByte(c)
+		i++
+	}
+	return out.String()
+}
+
+var reservedLineRe = regexp.MustCompile(`(?i)^\s*reserved\b[^;]*;\s*$`)
+
+func dropReservedLines(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		if reservedLineRe.MatchString(ln) {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
+}
+
+func normalizeBlankLines(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	blank := func(x string) bool { return strings.TrimSpace(x) == "" }
+	prevBlank := true
+	for _, ln := range lines {
+		if blank(ln) {
+			if prevBlank {
+				continue
+			}
+			prevBlank = true
+			out = append(out, "")
+			continue
+		}
+		prevBlank = false
+		out = append(out, ln)
+	}
+	for len(out) > 0 && blank(out[len(out)-1]) {
+		out = out[:len(out)-1]
+	}
+	return strings.Join(out, "\n") + "\n"
+}
+
+func tightenBlockBlankLines(s string) string {
+	reAfterOpen := regexp.MustCompile(`\{\r?\n[\t ]*\r?\n`)
+	s = reAfterOpen.ReplaceAllString(s, "{\n")
+	reBeforeClose := regexp.MustCompile(`\r?\n[\t ]*\r?\n\}`)
+	s = reBeforeClose.ReplaceAllString(s, "\n}")
+	return s
+}
+
+func formatProtoFileName(stem, caseKind string) string {
+	switch strings.ToLower(strings.TrimSpace(caseKind)) {
+	case "snake":
+		return toSnake(stem) + ".proto"
+	case "compact":
+		return strings.ToLower(removeDelims(stem)) + ".proto"
+	case "camel":
+		fallthrough
+	default:
+		return snakeToCamel(stem) + ".proto"
+	}
+}
+
+func toSnake(s string) string {
+	var out []rune
+	prevLower := false
+	for _, r := range s {
+		if r == '-' || r == '.' || r == ' ' {
+			r = '_'
+		}
+		if r >= 'A' && r <= 'Z' {
+			if prevLower {
+				out = append(out, '_')
+			}
+			out = append(out, rune(r+'a'-'A'))
+			prevLower = false
+			continue
+		}
+		out = append(out, r)
+		if r >= 'a' && r <= 'z' {
+			prevLower = true
+		} else if r == '_' {
+			prevLower = false
+		}
+	}
+	res := strings.ReplaceAll(string(out), "__", "_")
+	for strings.Contains(res, "__") {
+		res = strings.ReplaceAll(res, "__", "_")
+	}
+	return res
+}
+
+func removeDelims(s string) string {
+	b := strings.Builder{}
+	for _, r := range s {
+		if r == '_' || r == '-' || r == '.' || r == ' ' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func resolveTypeKeepSet(m map[string]map[string]struct{}, pkg, name string) map[string]struct{} {
 	if m == nil {
 		return nil
@@ -342,9 +519,7 @@ func resolveTypeKeepSet(m map[string]map[string]struct{}, pkg, name string) map[
 	return nil
 }
 
-// 在 message 定义文本内，仅保留 keepSet 中的字段与必要的结构
 func pruneMessageFields(def string, keepSet map[string]struct{}) string {
-	// 找到第一个 '{' 与其匹配的 '}'
 	i := strings.Index(def, "{")
 	j := strings.LastIndex(def, "}")
 	if i < 0 || j <= i {
@@ -357,14 +532,10 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 	var out strings.Builder
 	out.WriteString(head)
 
-	// 扫描 body，深度为 0 的语句：
-	// - 普通字段以 ';' 结束
-	// - oneof/嵌套 message/enum 为块结构
 	n := len(body)
 	cur := 0
 	depth := 0
 	for cur < n {
-		// 跳过空白
 		for cur < n && (body[cur] == ' ' || body[cur] == '\t' || body[cur] == '\r' || body[cur] == '\n') {
 			out.WriteByte(body[cur])
 			cur++
@@ -373,13 +544,12 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 			break
 		}
 
-		// 块结构：oneof/message/enum 在 depth==0 时处理
 		if depth == 0 && looksLikeBlock(body[cur:]) {
 			kw, start := readKeyword(body, cur)
 			if kw == "oneof" {
 				_, pos := readIdentAfter(body, start)
 				_, blkEnd := findBlock(body, pos)
-				if blkEnd <= pos { // 失败，尽量保留原文
+				if blkEnd <= pos {
 					out.WriteString(body[cur:])
 					break
 				}
@@ -390,11 +560,10 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 					cur = blkEnd
 					continue
 				}
-				// 丢弃空 oneof
 				cur = blkEnd
 				continue
 			}
-			if kw == "message" || kw == "enum" || kw == "extend" { // 原样保留
+			if kw == "message" || kw == "enum" || kw == "extend" {
 				_, blkEnd := findBlock(body, start)
 				if blkEnd <= start {
 					out.WriteString(body[cur:])
@@ -406,10 +575,9 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 			}
 		}
 
-		// 非块：读取到下一个分号（在 depth==0）
 		stmtStart := cur
 		for cur < n {
-			if body[cur] == '"' { // 字符串字面量
+			if body[cur] == '"' {
 				cur++
 				for cur < n {
 					if body[cur] == '\\' {
@@ -450,7 +618,6 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 
 	out.WriteString(tail)
 
-	// 额外一步：移除花括号内部的所有空行，避免裁剪字段后留下多余空行
 	res := out.String()
 	oi := strings.Index(res, "{")
 	oj := strings.LastIndex(res, "}")
@@ -458,7 +625,6 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 		return res
 	}
 	inner := res[oi+1 : oj]
-	// 按行移除空白行（仅包含空白字符的行）
 	var nb strings.Builder
 	lines := strings.Split(inner, "\n")
 	for _, ln := range lines {
@@ -468,13 +634,10 @@ func pruneMessageFields(def string, keepSet map[string]struct{}) string {
 		nb.WriteString(ln)
 		nb.WriteByte('\n')
 	}
-	// 去掉最后一个多余换行（如果有）
 	cleaned := strings.TrimSuffix(nb.String(), "\n")
 	if cleaned == "" {
-		// 空体：保持标准换行风格 {\n}
 		return res[:oi+1] + "\n" + res[oj:]
 	}
-	// 非空体：确保 { 与首字段之间、末字段与 } 之间各有一个换行
 	return res[:oi+1] + "\n" + cleaned + "\n" + res[oj:]
 }
 
@@ -483,7 +646,6 @@ func looksLikeBlock(s string) bool {
 	return strings.HasPrefix(s, "oneof ") || strings.HasPrefix(s, "message ") || strings.HasPrefix(s, "enum ") || strings.HasPrefix(s, "extend ")
 }
 
-// 从裁剪后的定义文本中收集类型标记（用于导入计算）
 var (
 	reLineComment  = regexp.MustCompile(`(?m)//.*$`)
 	reBlockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
@@ -492,18 +654,15 @@ var (
 )
 
 func collectTypeTokens(def string) []string {
-	// 去除注释，避免误匹配
 	s := reBlockComment.ReplaceAllString(def, "")
 	s = reLineComment.ReplaceAllString(s, "")
 	toks := map[string]struct{}{}
-	// map 的键值类型
 	for _, m := range reMapType.FindAllStringSubmatch(s, -1) {
 		if len(m) >= 3 {
 			toks[m[1]] = struct{}{}
 			toks[m[2]] = struct{}{}
 		}
 	}
-	// 普通字段与 oneof 内字段
 	for _, m := range reFieldType.FindAllStringSubmatch(s, -1) {
 		if len(m) >= 2 {
 			toks[m[1]] = struct{}{}
@@ -516,7 +675,6 @@ func collectTypeTokens(def string) []string {
 	return out
 }
 
-// 取去掉前导点与包前缀后的基本名
 func baseName(tok string) string {
 	t := strings.TrimPrefix(strings.TrimSpace(tok), ".")
 	if t == "" {
@@ -529,7 +687,6 @@ func baseName(tok string) string {
 }
 
 func readKeyword(s string, i int) (kw string, next int) {
-	// 跳空白
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') {
 		i++
 	}
@@ -552,7 +709,6 @@ func readIdentAfter(s string, i int) (ident string, next int) {
 }
 
 func findBlock(s string, i int) (start, end int) {
-	// 跳过空白直到 '{'
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') {
 		i++
 	}
@@ -592,14 +748,14 @@ func findBlock(s string, i int) (start, end int) {
 			}
 			continue
 		}
-		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' { // 行注释
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
 			i += 2
 			for i < len(s) && s[i] != '\n' {
 				i++
 			}
 			continue
 		}
-		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' { // 块注释
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
 			i += 2
 			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
 				i++
@@ -614,27 +770,22 @@ func findBlock(s string, i int) (start, end int) {
 	return start, end
 }
 
-// 判断语句是否为字段声明并决定是否保留
 func keepFieldStmt(stmt string, keepSet map[string]struct{}) bool {
 	s := strings.TrimSpace(stmt)
 	if s == "" {
 		return true
 	}
-	// 提前过滤明显的非字段语句
 	if strings.HasPrefix(s, "oneof ") || strings.HasPrefix(s, "message ") || strings.HasPrefix(s, "enum ") || strings.HasPrefix(s, "extend ") {
 		return true
 	}
-	// 简单匹配字段名：末尾必须是 ';'
 	if !strings.HasSuffix(s, ";") {
 		return true
 	}
-	// 找到 '=' 左侧最后一个标识符（字段名位于类型之后）
 	eq := strings.Index(s, "=")
 	if eq <= 0 {
 		return true
 	}
 	left := strings.TrimSpace(s[:eq])
-	// 字段名是 left 的最后一个标识符
 	name := lastIdent(left)
 	if name == "" {
 		return true
@@ -647,7 +798,6 @@ func keepFieldStmt(stmt string, keepSet map[string]struct{}) bool {
 }
 
 func lastIdent(s string) string {
-	// 跳过泛型 map<...> 等，直接从尾部找标识符
 	i := len(s) - 1
 	for i >= 0 && (s[i] == ' ' || s[i] == '\t') {
 		i--
@@ -663,13 +813,10 @@ func lastIdent(s string) string {
 	return s[start:end]
 }
 
-// 仅保留 oneof 内 keepSet 指定的字段项；无保留时返回空字符串以删除整个 oneof
 func pruneOneofFields(blk string, keepSet map[string]struct{}) string {
-	// blk 形如："oneof X {\n  Type a = 1;\n  Type b = 2;\n}"
-	// 简易实现：逐行保留含字段名且在 keepSet 内的语句
 	lines := strings.Split(blk, "\n")
 	if len(keepSet) == 0 {
-		return blk // 未指定则不裁剪 oneof
+		return blk
 	}
 	var out []string
 	keptCount := 0
@@ -692,7 +839,6 @@ func pruneOneofFields(blk string, keepSet map[string]struct{}) string {
 			out = append(out, ln)
 			continue
 		}
-		// 可能是字段行，尝试解析字段名
 		if idx := strings.Index(s, "="); idx > 0 {
 			left := strings.TrimSpace(s[:idx])
 			name := lastIdent(left)
@@ -702,11 +848,9 @@ func pruneOneofFields(blk string, keepSet map[string]struct{}) string {
 					keptCount++
 					continue
 				}
-				// 丢弃未列入字段
 				continue
 			}
 		}
-		// 非字段内容（注释等）直接丢弃以保持简洁
 	}
 	if keptCount == 0 {
 		return ""
@@ -714,7 +858,6 @@ func pruneOneofFields(blk string, keepSet map[string]struct{}) string {
 	return strings.Join(out, "\n")
 }
 
-// 解析单个 proto
 func parseProtoFile(path string) (*PFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -740,7 +883,6 @@ func parseProtoFile(path string) (*PFile, error) {
 	return &PFile{Path: filepath.ToSlash(path), Package: pkg, Syntax: syn, Defs: defs}, nil
 }
 
-// 扫描器与辅助
 type block struct {
 	kind, name             string
 	start, braceStart, end int
@@ -946,31 +1088,39 @@ func extractTypeRefs(s string) []string {
 
 func extractOriginalBlock(_ []byte, defText string) string { return defText }
 
-func injectCSharpNamespaceOption(content, ns string) string {
-	optRe := regexp.MustCompile(`(?m)^\s*option\s+csharp_namespace\s*=\s*"[^"]*"\s*;\s*$`)
-	if optRe.MatchString(content) {
-		return optRe.ReplaceAllString(content, "option csharp_namespace = \""+ns+"\";")
-	}
-	synRe := regexp.MustCompile(`(?m)^\s*syntax\s*=\s*"[^"]+"\s*;\s*$`)
-	if loc := synRe.FindStringIndex(content); loc != nil {
-		end := loc[1]
-		return content[:end] + "\n\noption csharp_namespace = \"" + ns + "\";\n" + content[end:]
-	}
-	return "option csharp_namespace = \"" + ns + "\";\n\n" + content
-}
-
-func removeGoPackageOption(content string) string {
-	re := regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*[^;]*;\s*$`)
-	return re.ReplaceAllString(content, "")
-}
-
-func stripPackageQualifiers(content string, pkgs map[string]struct{}) string {
-	if len(pkgs) == 0 {
+func stripSelfPackageQualifiers(content string, selfPkg string) string {
+	if strings.TrimSpace(selfPkg) == "" {
 		return content
 	}
-	for pkg := range pkgs {
-		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(pkg) + `\.` + `([A-Za-z_][\w]*)`)
-		content = re.ReplaceAllString(content, `$1`)
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(selfPkg) + `\.` + `([A-Za-z_][\w]*)`)
+	return re.ReplaceAllString(content, `$1`)
+}
+
+func transformFieldNames(def string, caseKind string) string {
+	i := strings.Index(def, "{")
+	j := strings.LastIndex(def, "}")
+	if i < 0 || j <= i {
+		return def
 	}
-	return content
+	head := def[:i+1]
+	body := def[i+1 : j]
+	tail := def[j:]
+
+	lines := strings.Split(body, "\n")
+	fieldRe := regexp.MustCompile(`^([\t ]*(?:repeated[\t ]+)?(?:map\s*<[^>]+>|[^\s=]+)[\t ]+)([A-Za-z_][\w]*)([\t ]*=\s*\d+.*;.*)$`)
+	for idx, ln := range lines {
+		if m := fieldRe.FindStringSubmatch(ln); m != nil {
+			name := m[2]
+			switch strings.ToLower(caseKind) {
+			case "snake":
+				name = toSnake(name)
+			case "compact":
+				name = strings.ToLower(removeDelims(name))
+			default:
+				name = snakeToCamel(name)
+			}
+			lines[idx] = m[1] + name + m[3]
+		}
+	}
+	return head + strings.Join(lines, "\n") + tail
 }

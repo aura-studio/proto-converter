@@ -6,11 +6,55 @@ import (
 	"strings"
 )
 
-// DepResolver 负责从初始种子递归解析 import，得到可达 proto 集。
+// DepResolver resolves proto import dependencies and seed locations.
 type DepResolver struct{}
 
-func (DepResolver) CollectWithImports(seeds []protoItem) ([]protoItem, error) {
-	roots := []string{".", filepath.FromSlash("external/proto/cli"), filepath.FromSlash("external/proto/shared")}
+// CollectWithImportsAndRoots resolves seeds to actual files and returns the transitive
+// closure of imported proto files along with the resolved seed items.
+func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir string) ([]protoItem, []protoItem, error) {
+	roots := []string{}
+	for _, it := range seeds {
+		if it.Dir != "" {
+			roots = append(roots, it.Dir)
+		}
+	}
+	if importDir != "" {
+		_ = filepath.WalkDir(importDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				roots = append(roots, path)
+			}
+			return nil
+		})
+	}
+	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			roots = append(roots, path)
+		}
+		return nil
+	})
+	roots = append(roots, ".")
+
+	uniq := func(in []string) []string {
+		m := map[string]struct{}{}
+		out := make([]string, 0, len(in))
+		for _, r := range in {
+			r = filepath.Clean(r)
+			if _, ok := m[r]; ok {
+				continue
+			}
+			m[r] = struct{}{}
+			out = append(out, r)
+		}
+		return out
+	}
+	roots = uniq(roots)
+
 	seen := map[string]protoItem{}
 	var queue []protoItem
 	push := func(it protoItem) {
@@ -21,8 +65,27 @@ func (DepResolver) CollectWithImports(seeds []protoItem) ([]protoItem, error) {
 		seen[key] = it
 		queue = append(queue, it)
 	}
+	var resolvedSeeds []protoItem
 	for _, it := range seeds {
+		if !exists(it.Path) {
+			candidates := []string{}
+			if it.Dir != "" {
+				candidates = append(candidates, filepath.Join(it.Dir, it.Base))
+			}
+			for _, r := range roots {
+				candidates = append(candidates, filepath.Join(r, it.Base))
+			}
+			for _, c := range candidates {
+				if exists(c) {
+					if fixed, err := normalizeItem(c); err == nil {
+						it = fixed
+					}
+					break
+				}
+			}
+		}
 		push(it)
+		resolvedSeeds = append(resolvedSeeds, it)
 	}
 
 	for len(queue) > 0 {
@@ -80,12 +143,12 @@ func (DepResolver) CollectWithImports(seeds []protoItem) ([]protoItem, error) {
 	for _, it := range seen {
 		out = append(out, it)
 	}
-	for i := 0; i < len(out); i++ { // simple sort by Base
+	for i := 0; i < len(out); i++ {
 		for j := i + 1; j < len(out); j++ {
 			if strings.ToLower(out[j].Base) < strings.ToLower(out[i].Base) {
 				out[i], out[j] = out[j], out[i]
 			}
 		}
 	}
-	return out, nil
+	return out, resolvedSeeds, nil
 }

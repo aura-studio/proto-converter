@@ -1,0 +1,69 @@
+# Proto Converter 配置模板（YAML）
+#
+# 约定与路径：
+# - 运行参数：
+#   - 使用 -w/--workdir 指定“工作目录”；程序会先 chdir 到该目录后再处理。
+#   - 使用 -c/--config 指定本 YAML 文件，路径相对“启动命令所在目录”解析。
+# - YAML 内所有相对路径，均以“工作目录”为基准解析。
+# - 程序仅做 proto 的裁剪/转换，不再调用 protoc/protogen；external 仅作为数据/输出位置，不会被扫描。
+#
+# 基本概念：
+# - files 列表定义“种子”proto 文件，并可为每个文件列出要保留的顶层定义（message/enum）。
+#   至少需要一个种子文件。
+# - types 用于对指定 message 类型裁剪字段，只保留 keep 列出的字段。
+# - 当 prune=true（默认）：仅导出种子文件中被选择的顶层定义，及其依赖的定义；
+#   当 prune=false：将所有可达的 proto 文件都视为种子，默认保留其全部顶层定义。
+# - 输出的 .proto 文件名会被统一为驼峰形式，例如 foo_bar.proto => FooBar.proto。
+# - 输出文件会写入（或替换）option csharp_namespace = "<namespace>"；包名前缀也会从类型引用中剥离。
+
+
+# 文件级裁剪：每个条目对应一个“种子” proto 文件
+# - file：proto 文件路径，可以是相对路径或绝对路径；若未带扩展名，会自动补上 .proto。
+# - keep：要保留的顶层定义名（message/enum）。未配置 keep 时，默认保留该文件的所有顶层定义。
+files:
+  # 示例1：相对工作目录的路径，保留全部顶层定义
+  # - file: proto/cli/account.proto
+  #   keep: []
+
+  # 示例2：仅保留指定顶层定义（message/enum 名）
+  # - file: proto/shared/structs
+  #   keep: [Identifier, Pair, ErrorCode]
+
+
+# 类型级字段裁剪：仅对 message 生效
+# - type：可以是短名（Message）或全名（package.Message）。
+# - keep：保留的字段名列表；未列出的字段将被移除。
+types:
+  # 示例3：裁剪短名类型的字段
+  # - type: Account
+  #   keep: [UserID, Token]
+
+  # 示例4：裁剪带包名的类型字段
+  # - type: shared.Identifier
+  #   keep: [ContextType, LogType]
+
+
+# 导出/转换设置
+# - exportDir：输出转换后的 .proto 目录（相对工作目录），未设置时默认写入工作目录 "."。
+# - importDir：导入目录根（相对工作目录），会进行深度扫描并作为 import 搜索根；可为空。
+#   注意：未设置 importDir 时，程序会对“当前工作目录”进行深度遍历并作为默认搜索根，
+#   因此只要把工作目录设为你的源码根，一般无需再设置 importDir。
+# - language：目标语言（必填），用于控制命名空间选项写入；支持 csharp/cs、golang/go、lua。
+# - fileNameCase：导出文件名风格（不含扩展），可选 camel（默认）、snake（蛇形）、compact（全小写无分隔）。
+# - fieldNameCase：字段命名风格（仅对导出生效），可选 camel（默认）、snake、compact。
+# - namespace：命名空间；当为空时不输出任何命名空间相关 option。
+# - prune：是否裁剪（默认 true）；false 时导出所有可达文件并保留其全部顶层定义。
+# - dryRun：演练模式，仅打印将执行的操作，不落盘。
+exportDir: .
+importDir: .
+language: csharp
+namespace: Export.Proto
+fileNameCase: camel
+fieldNameCase: camel
+prune: true
+dryRun: false
+
+# 兼容字段（已弃用/忽略）：
+# - protogen：已不再使用；本程序不调用外部生成器。
+# - outDir：已不再使用；不会输出 C# 代码，仅输出裁剪后的 .proto。
+# 这些字段如果存在将被忽略，但保留以兼容旧配置。
