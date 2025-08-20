@@ -37,6 +37,4 @@ func main() {
 		fmt.Printf("错误: %v\n", err)
 		return
 	}
-
-	fmt.Println("完成导出。")
 }
