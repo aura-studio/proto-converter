@@ -47,13 +47,14 @@ export:
   namespace: Export.Proto
 
   # 输出文件名风格（含 .proto 扩展前的部分）：
-  # - camel   默认，例：foo_bar.proto => FooBar.proto
+  # - keep    默认，不改动原始文件名（不含扩展名），仅补 .proto
+  # - camel   例：foo_bar.proto => FooBar.proto
   # - snake   例：FooBar.proto      => foo_bar.proto
   # - compact 全小写无分隔，例：FooBar.proto => foobar.proto
-  fileNameCase: camel
+  fileNameCase: keep
 
-  # 字段命名风格（仅作用于 message 顶层字段名）：camel（默认）/snake/compact。
-  fieldNameCase: camel
+  # 字段命名风格（仅作用于 message 顶层字段名）：keep（默认）/camel/snake/compact。
+  fieldNameCase: keep
 
 # 其他说明
 # - package：会保留源文件中的原始 package 行；仅移除“当前文件自身”的包限定前缀（避免自包内冗余），

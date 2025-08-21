@@ -42,12 +42,12 @@ func (e *Exporter) Run() error {
 	if cfg.FileNameCase != "" {
 		e.FileNameCase = strings.ToLower(cfg.FileNameCase)
 	} else if e.FileNameCase == "" {
-		e.FileNameCase = "camel"
+		e.FileNameCase = "keep"
 	}
 	if cfg.FieldNameCase != "" {
 		e.FieldNameCase = strings.ToLower(cfg.FieldNameCase)
 	} else if e.FieldNameCase == "" {
-		e.FieldNameCase = "camel"
+		e.FieldNameCase = "keep"
 	}
 	switch e.Language {
 	case "csharp", "cs", "c#", "golang", "go", "lua":

@@ -453,6 +453,9 @@ func tightenBlockBlankLines(s string) string {
 
 func formatProtoFileName(stem, caseKind string) string {
 	switch strings.ToLower(strings.TrimSpace(caseKind)) {
+	case "keep":
+		// 保持原始文件名（不含扩展名），仅补上 .proto
+		return stem + ".proto"
 	case "snake":
 		return toSnake(stem) + ".proto"
 	case "compact":
@@ -1097,6 +1100,10 @@ func stripSelfPackageQualifiers(content string, selfPkg string) string {
 }
 
 func transformFieldNames(def string, caseKind string) string {
+	// keep：保持字段名不变
+	if strings.ToLower(strings.TrimSpace(caseKind)) == "keep" {
+		return def
+	}
 	i := strings.Index(def, "{")
 	j := strings.LastIndex(def, "}")
 	if i < 0 || j <= i {
