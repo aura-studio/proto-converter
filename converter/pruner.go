@@ -349,8 +349,14 @@ func writeLangNamespaceOption(b *strings.Builder, lang, ns string) {
 func sanitizeProtoOutput(s string) string {
 	noCmt := stripCommentsOut(s)
 	noRes := dropReservedLines(noCmt)
+	// 先全局归一化一次空行
 	compact := normalizeBlankLines(noRes)
-	return tightenBlockBlankLines(compact)
+	// 消除块内（message/enum）字段间空行
+	compact = dropBlankLinesInsideTopBlocks(compact)
+	// 修复花括号附近空行
+	compact = tightenBlockBlankLines(compact)
+	// 最终再标准化一次，确保没有残留空行问题
+	return normalizeBlankLines(compact)
 }
 
 func stripCommentsOut(s string) string {
@@ -444,10 +450,35 @@ func normalizeBlankLines(s string) string {
 }
 
 func tightenBlockBlankLines(s string) string {
-	reAfterOpen := regexp.MustCompile(`\{\r?\n[\t ]*\r?\n`)
+	reAfterOpen := regexp.MustCompile(`\{\r?\n(?:[\t ]*\r?\n)+`)
 	s = reAfterOpen.ReplaceAllString(s, "{\n")
-	reBeforeClose := regexp.MustCompile(`\r?\n[\t ]*\r?\n\}`)
+	reBeforeClose := regexp.MustCompile(`\r?\n(?:[\t ]*\r?\n)+\}`)
 	s = reBeforeClose.ReplaceAllString(s, "\n}")
+	return s
+}
+
+// dropBlankLinesInsideTopBlocks removes blank lines inside top-level message/enum bodies.
+func dropBlankLinesInsideTopBlocks(s string) string {
+	blocks := scanTopLevelBlocks(s)
+	if len(blocks) == 0 {
+		return s
+	}
+	// 从后往前替换，避免索引位移
+	for i := len(blocks) - 1; i >= 0; i-- {
+		b := blocks[i]
+		inner := blockBody(s, b)
+		lines := strings.Split(inner, "\n")
+		var kept []string
+		for _, ln := range lines {
+			if strings.TrimSpace(ln) == "" {
+				continue
+			}
+			kept = append(kept, ln)
+		}
+		// 保持花括号内首尾各一行换行，主体去除空行
+		rebuilt := "\n" + strings.Join(kept, "\n") + "\n"
+		s = s[:b.braceStart+1] + rebuilt + s[b.end-1:]
+	}
 	return s
 }
 
