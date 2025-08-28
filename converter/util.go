@@ -24,22 +24,47 @@ func ensureDir(dir string, dry bool) error {
 
 func snakeToCamel(s string) string {
 	s = strings.TrimSpace(s)
-	b := strings.Builder{}
-	upperNext := true
-	for _, r := range s {
-		if r == '_' || r == '-' || r == '.' || r == ' ' {
-			upperNext = true
+	// 全大写直接返回
+	if s == strings.ToUpper(s) {
+		return s
+	}
+	// 首字母大写且后续全大写也直接返回（如 ASNBe）
+	if len(s) > 1 && isUpper(rune(s[0])) && s[1:] == strings.ToUpper(s[1:]) {
+		return s
+	}
+	// 分隔符分段，每段首字母大写
+	parts := splitByDelims(s)
+	for i, p := range parts {
+		if p == "" {
 			continue
 		}
-		if upperNext {
-			if 'a' <= r && r <= 'z' {
-				r = r - ('a' - 'A')
-			}
-			upperNext = false
+		runes := []rune(p)
+		if isLower(runes[0]) {
+			runes[0] = toUpper(runes[0])
 		}
-		b.WriteRune(r)
+		parts[i] = string(runes)
 	}
-	return b.String()
+	return strings.Join(parts, "")
+}
+
+func splitByDelims(s string) []string {
+	f := func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == ' '
+	}
+	return strings.FieldsFunc(s, f)
+}
+
+func isUpper(r rune) bool {
+	return r >= 'A' && r <= 'Z'
+}
+func isLower(r rune) bool {
+	return r >= 'a' && r <= 'z'
+}
+func toUpper(r rune) rune {
+	if isLower(r) {
+		return r - ('a' - 'A')
+	}
+	return r
 }
 
 func normalizeItem(s string) (protoItem, error) {
