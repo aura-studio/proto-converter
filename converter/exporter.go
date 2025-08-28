@@ -25,27 +25,27 @@ func (e *Exporter) Run() error {
 	if err != nil {
 		return err
 	}
-	if cfg.ExportDir != "" {
-		e.ExportDir = filepath.FromSlash(cfg.ExportDir)
+	if cfg.Export.Dir != "" {
+		e.ExportDir = filepath.FromSlash(cfg.Export.Dir)
 	} else if e.ExportDir == "" {
 		e.ExportDir = "."
 	}
-	if cfg.ImportDir != "" {
-		e.ImportDir = filepath.FromSlash(cfg.ImportDir)
+	if cfg.Import.Dir != "" {
+		e.ImportDir = filepath.FromSlash(cfg.Import.Dir)
 	}
-	if cfg.Namespace != "" {
-		e.Namespace = cfg.Namespace
+	if cfg.Export.Namespace != "" {
+		e.Namespace = cfg.Export.Namespace
 	}
-	if cfg.Language != "" {
-		e.Language = strings.ToLower(cfg.Language)
+	if cfg.Export.Language != "" {
+		e.Language = strings.ToLower(cfg.Export.Language)
 	}
-	if cfg.FileNameCase != "" {
-		e.FileNameCase = strings.ToLower(cfg.FileNameCase)
+	if cfg.Export.FileNameCase != "" {
+		e.FileNameCase = strings.ToLower(cfg.Export.FileNameCase)
 	} else if e.FileNameCase == "" {
 		e.FileNameCase = "keep"
 	}
-	if cfg.FieldNameCase != "" {
-		e.FieldNameCase = strings.ToLower(cfg.FieldNameCase)
+	if cfg.Export.FieldNameCase != "" {
+		e.FieldNameCase = strings.ToLower(cfg.Export.FieldNameCase)
 	} else if e.FieldNameCase == "" {
 		e.FieldNameCase = "keep"
 	}
@@ -56,8 +56,8 @@ func (e *Exporter) Run() error {
 	default:
 		return fmt.Errorf("不支持的 language: %s (支持: csharp/cs/c#、golang/go、lua)", e.Language)
 	}
-	if cfg.Prune != nil {
-		e.Prune = *cfg.Prune
+	if cfg.Import.Prune != nil {
+		e.Prune = *cfg.Import.Prune
 	} else {
 		if !e.Prune {
 			e.Prune = true

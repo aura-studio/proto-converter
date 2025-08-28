@@ -33,7 +33,7 @@ func (Pruner) BuildPrunedTempProtos(
 	seeds []protoItem,
 	seedKeep map[string]map[string]struct{},
 	typeFieldKeep map[string]map[string]struct{},
-	outDir, ns, lang, fileNameCase, fieldNameCase string,
+	outDir, ns, lang, caseKind, fieldNameCase string,
 	dry bool,
 ) (string, []protoItem, error) {
 	parsed := map[string]*PFile{}
@@ -209,7 +209,7 @@ func (Pruner) BuildPrunedTempProtos(
 	var targets []protoItem
 	for filePath, pf := range parsed {
 		base := filepath.Base(filePath)
-		rel := formatProtoFileName(trimExt(base), fileNameCase)
+		rel := toCase(trimExt(base), caseKind) + ".proto"
 		dstPath := filepath.Join(tempRoot, rel)
 		if dry {
 			fmt.Printf("[dry] mkdir -p %s\n", filepath.Dir(dstPath))
@@ -305,7 +305,7 @@ func (Pruner) BuildPrunedTempProtos(
 				b.WriteString("package " + pf.Package + ";\n\n")
 			}
 			for imp := range crossImports {
-				impName := formatProtoFileName(trimExt(filepath.Base(imp)), fileNameCase)
+				impName := toCase(trimExt(filepath.Base(imp)), caseKind) + ".proto"
 				b.WriteString("import \"" + impName + "\";\n")
 			}
 			for imp := range googleImports {
@@ -480,62 +480,6 @@ func dropBlankLinesInsideTopBlocks(s string) string {
 		s = s[:b.braceStart+1] + rebuilt + s[b.end-1:]
 	}
 	return s
-}
-
-func formatProtoFileName(stem, caseKind string) string {
-	switch strings.ToLower(strings.TrimSpace(caseKind)) {
-	case "keep":
-		// 保持原始文件名（不含扩展名），仅补上 .proto
-		return stem + ".proto"
-	case "snake":
-		return toSnake(stem) + ".proto"
-	case "compact":
-		return strings.ToLower(removeDelims(stem)) + ".proto"
-	case "camel":
-		fallthrough
-	default:
-		return snakeToCamel(stem) + ".proto"
-	}
-}
-
-func toSnake(s string) string {
-	var out []rune
-	prevLower := false
-	for _, r := range s {
-		if r == '-' || r == '.' || r == ' ' {
-			r = '_'
-		}
-		if r >= 'A' && r <= 'Z' {
-			if prevLower {
-				out = append(out, '_')
-			}
-			out = append(out, rune(r+'a'-'A'))
-			prevLower = false
-			continue
-		}
-		out = append(out, r)
-		if r >= 'a' && r <= 'z' {
-			prevLower = true
-		} else if r == '_' {
-			prevLower = false
-		}
-	}
-	res := strings.ReplaceAll(string(out), "__", "_")
-	for strings.Contains(res, "__") {
-		res = strings.ReplaceAll(res, "__", "_")
-	}
-	return res
-}
-
-func removeDelims(s string) string {
-	b := strings.Builder{}
-	for _, r := range s {
-		if r == '_' || r == '-' || r == '.' || r == ' ' {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 func resolveTypeKeepSet(m map[string]map[string]struct{}, pkg, name string) map[string]struct{} {
@@ -1148,16 +1092,7 @@ func transformFieldNames(def string, caseKind string) string {
 	fieldRe := regexp.MustCompile(`^([\t ]*(?:repeated[\t ]+)?(?:map\s*<[^>]+>|[^\s=]+)[\t ]+)([A-Za-z_][\w]*)([\t ]*=\s*\d+.*;.*)$`)
 	for idx, ln := range lines {
 		if m := fieldRe.FindStringSubmatch(ln); m != nil {
-			name := m[2]
-			switch strings.ToLower(caseKind) {
-			case "snake":
-				name = toSnake(name)
-			case "compact":
-				name = strings.ToLower(removeDelims(name))
-			default:
-				name = snakeToCamel(name)
-			}
-			lines[idx] = m[1] + name + m[3]
+			lines[idx] = m[1] + toCase(m[2], caseKind) + m[3]
 		}
 	}
 	return head + strings.Join(lines, "\n") + tail
