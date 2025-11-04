@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/aura-studio/proto-converter/converter"
@@ -16,24 +15,12 @@ func main() {
 	flag.StringVar(workdir, "workdir", *workdir, "工作目录（同 -w）")
 	flag.Parse()
 
-	startWD, _ := os.Getwd()
-	configAbs := *configPath
-	if !filepath.IsAbs(configAbs) {
-		configAbs = filepath.Clean(filepath.Join(startWD, configAbs))
-	}
-	workAbs := *workdir
-	if !filepath.IsAbs(workAbs) {
-		workAbs = filepath.Clean(filepath.Join(startWD, workAbs))
-	}
-	if err := os.Chdir(workAbs); err != nil {
-		fmt.Fprintf(os.Stderr, "无法进入工作目录: %s (%v)\n", workAbs, err)
-		return
+	cvt := &converter.Converter{
+		ConfigPath: *configPath,
+		WorkPath:   *workdir,
 	}
 
-	exp := &converter.Exporter{}
-
-	exp.ConfigPath = configAbs
-	if err := exp.Run(); err != nil {
+	if err := cvt.Run(); err != nil {
 		fmt.Printf("错误: %v\n", err)
 		return
 	}

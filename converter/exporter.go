@@ -21,6 +21,8 @@ type Exporter struct {
 
 // Run executes export with the current Exporter settings.
 func (e *Exporter) Run() error {
+
+
 	cfg, seeds, seedKeep, typeFieldKeep, err := readProtoConfig(e.ConfigPath)
 	if err != nil {
 		return err
