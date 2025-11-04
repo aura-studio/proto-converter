@@ -33,7 +33,7 @@ func (Pruner) BuildPrunedTempProtos(
 	seeds []protoItem,
 	seedKeep map[string]map[string]struct{},
 	typeFieldKeep map[string]map[string]struct{},
-	outDir, ns, lang, caseKind, fieldNameCase string,
+	inDir, outDir, ns, lang, caseKind, fieldNameCase string,
 	dry bool,
 ) (string, []protoItem, error) {
 	parsed := map[string]*PFile{}
@@ -87,7 +87,9 @@ func (Pruner) BuildPrunedTempProtos(
 	}
 	for filePath, pf := range parsed {
 		if _, isSeed := seedSet[filePath]; isSeed {
-			if keepSet, ok := seedKeep[filePath]; ok {
+			keepPath, _ := filepath.Rel(inDir, filePath)
+			keepPath = filepath.ToSlash(keepPath)
+			if keepSet, ok := seedKeep[keepPath]; ok {
 				for i := range pf.Defs {
 					if _, ok := keepSet[pf.Defs[i].Name]; ok {
 						addDef(filePath, &pf.Defs[i])

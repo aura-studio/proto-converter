@@ -82,7 +82,7 @@ func (e *Exporter) Run() error {
 		useSeeds = resolvedSeeds
 	}
 
-	if _, _, err := (Pruner{}).BuildPrunedTempProtos(normalized, useSeeds, seedKeep, typeFieldKeep, e.ExportDir, e.Namespace, e.Language, e.FileNameCase, e.FieldNameCase, e.DryRun); err != nil {
+	if _, _, err := (Pruner{}).BuildPrunedTempProtos(normalized, useSeeds, seedKeep, typeFieldKeep, e.ImportDir, e.ExportDir, e.Namespace, e.Language, e.FileNameCase, e.FieldNameCase, e.DryRun); err != nil {
 		return fmt.Errorf("写出转换后的 proto 失败: %w", err)
 	}
 	return nil
