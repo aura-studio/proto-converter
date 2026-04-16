@@ -30,7 +30,6 @@ proto-converter/
 │   ├── resolver.md             # resolver 子包文档
 │   ├── pruner.md               # pruner 子包文档
 │   ├── formatter.md            # formatter 子包文档
-│   ├── seedloader.md           # seedloader 子包文档
 │   └── converter.md            # converter 顶层包文档
 └── converter/                  # 核心代码
     ├── exporter.go             # 导出流程编排
@@ -43,8 +42,7 @@ proto-converter/
     ├── parser/                 # .proto 文件解析
     ├── resolver/               # 类型引用与 import 依赖解析
     ├── pruner/                 # 定义裁剪与编排
-    ├── formatter/              # 输出格式化与清理
-    └── seedloader/             # 种子文件规范化
+    └── formatter/              # 输出格式化与清理
 ```
 
 ## 使用方式
@@ -83,4 +81,3 @@ bash scripts/build.sh
 | [resolver.md](resolver.md) | resolver 子包：类型引用解析和 import 依赖解析 |
 | [pruner.md](pruner.md) | pruner 子包：定义裁剪编排 |
 | [formatter.md](formatter.md) | formatter 子包：输出格式化与清理 |
-| [seedloader.md](seedloader.md) | seedloader 子包：种子文件规范化 |

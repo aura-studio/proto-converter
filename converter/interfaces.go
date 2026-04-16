@@ -40,9 +40,3 @@ type DefPruner interface {
 	PruneOneofFields(blk string, keepSet map[string]struct{}) string
 	CollectTypeTokens(def string) []string
 }
-
-// SeedLoaderIface defines seed file loading capabilities.
-// Named SeedLoaderIface to avoid conflict with the existing SeedLoader struct.
-type SeedLoaderIface interface {
-	SeedsFromList(list []string) ([]model.ProtoItem, error)
-}

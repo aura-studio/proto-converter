@@ -31,7 +31,6 @@ type Exporter struct {
 	formatter    Formatter
 	defPruner    DefPruner
 	depResolver  DepResolverIface
-	seedLoader   SeedLoaderIface
 }
 
 // ExporterOption configures an Exporter via functional options.
