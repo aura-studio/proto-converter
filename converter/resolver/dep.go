@@ -1,17 +1,24 @@
-package converter
+package resolver
 
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/aura-studio/proto-converter/converter/model"
 )
+
+var importRe = regexp.MustCompile(`(?m)^\s*import\s+\"([^\"]+)\"\s*;`)
 
 // DepResolver resolves proto import dependencies and seed locations.
 type DepResolver struct{}
 
 // CollectWithImportsAndRoots resolves seeds to actual files and returns the transitive
 // closure of imported proto files along with the resolved seed items.
-func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir string) ([]protoItem, []protoItem, error) {
+func (DepResolver) CollectWithImportsAndRoots(
+	seeds []model.ProtoItem, importDir string,
+) ([]model.ProtoItem, []model.ProtoItem, error) {
 	roots := []string{}
 	for _, it := range seeds {
 		if it.Dir != "" {
@@ -55,9 +62,9 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 	}
 	roots = uniq(roots)
 
-	seen := map[string]protoItem{}
-	var queue []protoItem
-	push := func(it protoItem) {
+	seen := map[string]model.ProtoItem{}
+	var queue []model.ProtoItem
+	push := func(it model.ProtoItem) {
 		key := strings.ToLower(it.Base)
 		if _, ok := seen[key]; ok {
 			return
@@ -65,9 +72,9 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 		seen[key] = it
 		queue = append(queue, it)
 	}
-	var resolvedSeeds []protoItem
+	var resolvedSeeds []model.ProtoItem
 	for _, it := range seeds {
-		if !exists(it.Path) {
+		if !model.Exists(it.Path) {
 			candidates := []string{}
 			if it.Dir != "" {
 				candidates = append(candidates, filepath.Join(it.Dir, it.Base))
@@ -76,8 +83,8 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 				candidates = append(candidates, filepath.Join(r, it.Base))
 			}
 			for _, c := range candidates {
-				if exists(c) {
-					if fixed, err := normalizeItem(c); err == nil {
+				if model.Exists(c) {
+					if fixed, err := model.NormalizeItem(c); err == nil {
 						it = fixed
 					}
 					break
@@ -92,7 +99,7 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 		cur := queue[0]
 		queue = queue[1:]
 		path := cur.Path
-		if !exists(path) {
+		if !model.Exists(path) {
 			candidates := []string{}
 			if cur.Dir != "" {
 				candidates = append(candidates, filepath.Join(cur.Dir, cur.Base))
@@ -101,7 +108,7 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 				candidates = append(candidates, filepath.Join(r, cur.Base))
 			}
 			for _, c := range candidates {
-				if exists(c) {
+				if model.Exists(c) {
 					path = c
 					break
 				}
@@ -117,14 +124,14 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 			var found string
 			if cur.Dir != "" {
 				p := filepath.Join(cur.Dir, imp)
-				if exists(p) {
+				if model.Exists(p) {
 					found = p
 				}
 			}
 			if found == "" {
 				for _, r := range roots {
 					p := filepath.Join(r, imp)
-					if exists(p) {
+					if model.Exists(p) {
 						found = p
 						break
 					}
@@ -133,13 +140,13 @@ func (DepResolver) CollectWithImportsAndRoots(seeds []protoItem, importDir strin
 			if found == "" {
 				continue
 			}
-			if it, err := normalizeItem(found); err == nil {
+			if it, err := model.NormalizeItem(found); err == nil {
 				push(it)
 			}
 		}
 	}
 
-	out := make([]protoItem, 0, len(seen))
+	out := make([]model.ProtoItem, 0, len(seen))
 	for _, it := range seen {
 		out = append(out, it)
 	}

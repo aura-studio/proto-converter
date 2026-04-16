@@ -4,6 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/aura-studio/proto-converter/converter/config"
+	"github.com/aura-studio/proto-converter/converter/formatter"
+	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/parser"
+	"github.com/aura-studio/proto-converter/converter/pruner"
+	"github.com/aura-studio/proto-converter/converter/resolver"
 )
 
 // Exporter loads config, resolves dependencies, prunes, and writes proto outputs.
@@ -17,14 +24,69 @@ type Exporter struct {
 	FieldNameCase string
 	Prune         bool
 	DryRun        bool
+
+	// Optional dependency injection
+	parser       Parser
+	typeResolver TypeResolver
+	formatter    Formatter
+	defPruner    DefPruner
+	depResolver  DepResolverIface
+	seedLoader   SeedLoaderIface
 }
+
+// ExporterOption configures an Exporter via functional options.
+type ExporterOption func(*Exporter)
+
+// NewExporter creates an Exporter with optional dependency injection.
+func NewExporter(opts ...ExporterOption) *Exporter {
+	e := &Exporter{}
+	for _, o := range opts {
+		o(e)
+	}
+	return e
+}
+
+func WithParser(p Parser) ExporterOption             { return func(e *Exporter) { e.parser = p } }
+func WithTypeResolver(r TypeResolver) ExporterOption { return func(e *Exporter) { e.typeResolver = r } }
+func WithFormatter(f Formatter) ExporterOption       { return func(e *Exporter) { e.formatter = f } }
+func WithDefPruner(d DefPruner) ExporterOption       { return func(e *Exporter) { e.defPruner = d } }
 
 // Run executes export with the current Exporter settings.
 func (e *Exporter) Run() error {
-	cfg, seeds, seedKeep, typeFieldKeep, err := readProtoConfig(e.ConfigPath)
+	p := e.parser
+	if p == nil {
+		p = parser.ProtoParser{}
+	}
+	tr := e.typeResolver
+	if tr == nil {
+		tr = resolver.NewTypeResolver()
+	}
+	f := e.formatter
+	if f == nil {
+		f = formatter.OutputFormatter{Parser: p}
+	}
+	dp := e.defPruner
+	if dp == nil {
+		dp = pruner.DefinitionPruner{}
+	}
+
+	cfg, err := (config.Loader{}).Load(e.ConfigPath)
 	if err != nil {
 		return err
 	}
+	if err := (config.Validator{}).Validate(cfg); err != nil {
+		return err
+	}
+	rawSeeds, seedKeep, typeFieldKeep, err := (config.Validator{}).BuildSeedKeep(cfg)
+	if err != nil {
+		return err
+	}
+	// Convert config.SeedItem to model.ProtoItem
+	seeds := make([]model.ProtoItem, len(rawSeeds))
+	for i, s := range rawSeeds {
+		seeds[i] = model.ProtoItem{Path: s.Path, Dir: s.Dir, Base: s.Base}
+	}
+
 	if cfg.Export.Dir != "" {
 		e.ExportDir = filepath.FromSlash(cfg.Export.Dir)
 	} else if e.ExportDir == "" {
@@ -66,11 +128,12 @@ func (e *Exporter) Run() error {
 	if cfg.DryRun != nil {
 		e.DryRun = *cfg.DryRun
 	}
-	normalized, resolvedSeeds, err := (DepResolver{}).CollectWithImportsAndRoots(seeds, e.ImportDir)
+
+	normalized, resolvedSeeds, err := (resolver.DepResolver{}).CollectWithImportsAndRoots(seeds, e.ImportDir)
 	if err != nil {
 		return err
 	}
-	if err := ensureDir(e.ExportDir, e.DryRun); err != nil {
+	if err := model.EnsureDir(e.ExportDir, e.DryRun); err != nil {
 		return err
 	}
 	if !e.Prune {
@@ -82,7 +145,22 @@ func (e *Exporter) Run() error {
 		useSeeds = resolvedSeeds
 	}
 
-	if _, _, err := (Pruner{}).BuildPrunedTempProtos(normalized, useSeeds, seedKeep, typeFieldKeep, e.ImportDir, e.ExportDir, e.Namespace, e.Language, e.FileNameCase, e.FieldNameCase, e.DryRun); err != nil {
+	prunr := pruner.Pruner{
+		Parser:   p,
+		Resolver: tr,
+		DefPrune: dp,
+		Fmt:      f,
+	}
+	opts := model.PruneOptions{
+		InDir:         e.ImportDir,
+		OutDir:        e.ExportDir,
+		Namespace:     e.Namespace,
+		Language:      e.Language,
+		FileNameCase:  e.FileNameCase,
+		FieldNameCase: e.FieldNameCase,
+		DryRun:        e.DryRun,
+	}
+	if _, _, err := prunr.BuildPrunedTempProtos(normalized, useSeeds, seedKeep, typeFieldKeep, opts); err != nil {
 		return fmt.Errorf("写出转换后的 proto 失败: %w", err)
 	}
 	return nil
