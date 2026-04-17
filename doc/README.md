@@ -73,6 +73,7 @@ bash scripts/build.sh
 
 | 文档 | 说明 |
 |------|------|
+| [dependency-graph.md](dependency-graph.md) | 模块依赖图（Mermaid） |
 | [architecture.md](architecture.md) | 整体架构、数据流、依赖关系 |
 | [converter.md](converter.md) | converter 顶层包：Exporter、接口、类型别名 |
 | [model.md](model.md) | model 子包：共享数据类型和工具函数 |
