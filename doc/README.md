@@ -96,6 +96,7 @@ bash scripts/build.sh
 
 | 文档 | 说明 |
 |------|------|
+| [pipeline.md](pipeline.md) | 流水线输入/输出说明（按环节解释数据流） |
 | [dependency-graph.md](dependency-graph.md) | 模块依赖图（Mermaid） |
 | [architecture.md](architecture.md) | 整体架构、数据流、依赖关系 |
 | [model.md](model.md) | core/model 子包：共享数据类型和工具函数 |
