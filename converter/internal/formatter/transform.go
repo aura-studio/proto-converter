@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
 )
 
 // StripSelfPackageQualifiers 移除当前包的冗余限定前缀。

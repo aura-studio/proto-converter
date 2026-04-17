@@ -1,46 +1,85 @@
 # pruner 子包
 
-**包路径**: `converter/pruner`
+**包路径**: `converter/internal/pruner`
 
-**职责**: 裁剪编排和字段级裁剪。`Pruner` 结构体组合 Parser、TypeResolver、DefPruner、Formatter 四个接口，编排整个裁剪流程；`DefinitionPruner` 负责 message/enum 定义的字段级裁剪。
+**职责**: 裁剪编排和字段级裁剪。`Pruner` 结构体通过 `core/contract` 包的接口组合 Parser、TypeResolver、DefPruner、Formatter 四个组件，编排整个裁剪流程；`DefinitionPruner` 负责 message/enum 定义的字段级裁剪。
+
+> 注意：该包位于 `internal/` 目录下，受 Go 语言 `internal` 可见性限制，仅允许 `converter/` 内部的包导入。
 
 ## 文件列表
 
 ### pruner.go — 裁剪编排器
 
-**本地接口定义**: 为避免导入 converter 顶层包（会造成循环依赖），pruner 包内定义了与 `converter/interfaces.go` 相同签名的本地接口：`Parser`、`TypeResolver`、`Formatter`、`DefPrunerIface`。
-
-**`Pruner` 结构体**:
+**`Pruner` 结构体**（使用 `core/contract` 包的接口，不再本地定义重复接口）:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `Parser` | `Parser` | proto 文件解析器 |
-| `Resolver` | `TypeResolver` | 类型引用解析器 |
-| `DefPrune` | `DefPrunerIface` | 定义裁剪器 |
-| `Fmt` | `Formatter` | 输出格式化器 |
+| `Parser` | `contract.Parser` | proto 文件解析器 |
+| `Resolver` | `contract.TypeResolver` | 类型引用解析器 |
+| `DefPrune` | `contract.DefPruner` | 定义裁剪器 |
+| `Fmt` | `contract.Formatter` | 输出格式化器 |
+
+**依赖**: `converter/core/contract`、`converter/core/model`、`converter/core/util`、`converter/internal/resolver`（WellKnownTypes）、标准库。
 
 | 方法 | 说明 |
 |------|------|
-| `BuildPrunedTempProtos(all, seeds, seedKeep, typeFieldKeep, opts) (outDir, targets, error)` | 裁剪并写出 proto 文件 |
+| `BuildPrunedTempProtos(all, seeds, seedKeep, typeFieldKeep, opts) (outDir, targets, error)` | 裁剪并写出 proto 文件（编排方法，依次调用三个子方法） |
 
-**BuildPrunedTempProtos 流程**:
-1. **解析阶段**: 调用 `Parser.ParseFile` 解析所有 proto 文件为 PFile
-2. **索引阶段**: 调用 `Resolver.BuildIndex` 构建类型索引
-3. **选择阶段**: 从种子文件的定义出发，根据 seedKeep 规则选择初始定义集
-4. **依赖追踪**: BFS 遍历选中的定义，对每个定义：
-   - 按 typeFieldKeep 规则裁剪字段（`DefPrune.PruneMessageFields`）
-   - 收集类型引用（`DefPrune.CollectTypeTokens`）
-   - 解析引用到具体定义（`Resolver.Resolve`），加入队列
-5. **输出阶段**: 对每个文件：
-   - 组装 syntax、package、import、namespace option
-   - 对选中的定义执行字段裁剪、自包前缀移除、字段名转换
-   - 计算跨文件 import 和 Google import
-   - 调用 `Fmt.Sanitize` 清理输出
-   - 写入目标文件
+**BuildPrunedTempProtos 已拆分为三个阶段性子方法**:
+
+#### 阶段 1：parseAndIndex — 解析与索引构建
+
+```go
+func (p Pruner) parseAndIndex(all []model.ProtoItem) (parseResult, error)
+```
+
+- 遍历所有 ProtoItem，调用 `Parser.ParseFile` 解析每个文件
+- 调用 `Resolver.BuildIndex` 构建全名索引和简名索引
+- 返回 `parseResult` 内部结构体（封装 `parsed`、`fullIndex`、`simpleIndex`）
+
+#### 阶段 2：collectSelectedDefs — BFS 依赖追踪
+
+```go
+func (p Pruner) collectSelectedDefs(pr, seeds, seedKeep, typeFieldKeep, inDir) (map[string]map[string]struct{}, error)
+```
+
+- 从种子文件的定义出发，根据 seedKeep 规则选择初始定义集
+- BFS 遍历选中的定义，对每个定义：
+  - 按 typeFieldKeep 规则裁剪字段（`DefPrune.PruneMessageFields`）
+  - 收集类型引用（`DefPrune.CollectTypeTokens`）
+  - 解析引用到具体定义（`Resolver.Resolve`），加入队列
+- 返回 `selected` 映射（文件路径 → 定义名称集合）
+
+#### 阶段 3：assembleAndWrite — 文件组装与输出
+
+```go
+func (p Pruner) assembleAndWrite(pr, selected, typeFieldKeep, opts) (string, []model.ProtoItem, error)
+```
+
+- 遍历每个解析后的文件，根据 `selected` 映射决定输出内容
+- 对选中的定义执行字段裁剪、自包前缀移除（`Fmt.StripSelfPackageQualifiers`）、字段名转换（`Fmt.TransformFieldNames`）
+- 计算跨文件 import 和 Google import
+- 组装 syntax、package、import、namespace option
+- 调用 `Fmt.Sanitize` 清理输出
+- 写入目标文件
+
+**编排方法**（≤30 行）:
+
+```go
+func (p Pruner) BuildPrunedTempProtos(...) (string, []model.ProtoItem, error) {
+    pr, err := p.parseAndIndex(all)
+    // ...
+    selected, err := p.collectSelectedDefs(pr, seeds, seedKeep, typeFieldKeep, opts.InDir)
+    // ...
+    return p.assembleAndWrite(pr, selected, typeFieldKeep, opts)
+}
+```
+
+**`parseResult` 内部结构体**: 封装解析阶段的输出，包含 `parsed`（已解析文件映射）、`fullIndex`（全限定名索引）、`simpleIndex`（简单名索引）。
 
 ### defpruner.go — 定义裁剪器
 
-**`DefinitionPruner` 结构体**（空结构体，实现 `converter.DefPruner` 接口）:
+**`DefinitionPruner` 结构体**（空结构体，实现 `contract.DefPruner` 接口）:
 
 | 方法 | 说明 |
 |------|------|

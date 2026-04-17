@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
 )
 
 // ProtoParser implements the converter.Parser interface for proto file parsing.

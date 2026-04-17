@@ -1,8 +1,10 @@
 # parser 子包
 
-**包路径**: `converter/parser`
+**包路径**: `converter/internal/parser`
 
 **职责**: 将 `.proto` 文件解析为结构化的内部表示（`model.PFile`）。包含词法级的扫描器，能识别顶层 message/enum 定义块、剥离注释、提取类型引用。
+
+> 注意：该包位于 `internal/` 目录下，受 Go 语言 `internal` 可见性限制，仅允许 `converter/` 内部的包导入。实现 `core/contract.Parser` 接口。
 
 ## 文件列表
 
@@ -18,7 +20,7 @@
 
 ### parser.go — 文件解析入口
 
-**`ProtoParser` 结构体**（空结构体，实现 `converter.Parser` 接口）:
+**`ProtoParser` 结构体**（空结构体，实现 `contract.Parser` 接口）:
 
 | 方法 | 说明 |
 |------|------|
@@ -30,6 +32,8 @@
 3. 调用 `ScanTopLevelBlocks` 扫描原始内容中的顶层 message/enum 块
 4. 对每个块，提取块体并调用 `ExtractTypeRefs` 收集类型引用
 5. 组装为 `model.PFile` 返回
+
+**依赖**: 仅依赖 `converter/core/model` 和标准库。
 
 ### scanner.go — 扫描器
 

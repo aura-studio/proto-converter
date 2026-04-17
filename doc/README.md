@@ -24,25 +24,46 @@ proto-converter/
 ├── doc/                        # 项目文档
 │   ├── README.md               # 本文件 - 项目总览
 │   ├── architecture.md         # 架构设计说明
-│   ├── model.md                # model 子包文档
-│   ├── config.md               # config 子包文档
-│   ├── parser.md               # parser 子包文档
-│   ├── resolver.md             # resolver 子包文档
-│   ├── pruner.md               # pruner 子包文档
-│   ├── formatter.md            # formatter 子包文档
-│   └── converter.md            # converter 顶层包文档
-└── converter/                  # 核心代码
-    ├── exporter.go             # 导出流程编排
-    ├── interfaces.go           # 核心接口定义
-    ├── types.go                # 类型别名（从 model 重导出）
-    ├── case.go                 # 命名风格转换（顶层包副本）
-    ├── case_test.go            # 命名风格单元测试
-    ├── model/                  # 共享数据模型（无外部依赖的叶子包）
-    ├── config/                 # YAML 配置加载与校验
-    ├── parser/                 # .proto 文件解析
-    ├── resolver/               # 类型引用与 import 依赖解析
-    ├── pruner/                 # 定义裁剪与编排
-    └── formatter/              # 输出格式化与清理
+│   ├── dependency-graph.md     # 模块依赖图（Mermaid）
+│   ├── model.md                # core/model 子包文档
+│   ├── config.md               # internal/config 子包文档
+│   ├── parser.md               # internal/parser 子包文档
+│   ├── resolver.md             # internal/resolver 子包文档
+│   ├── pruner.md               # internal/pruner 子包文档
+│   ├── formatter.md            # internal/formatter 子包文档
+│   └── converter.md            # exporter 与 contract 子包文档
+└── converter/                  # 核心代码（三级嵌套结构）
+    ├── core/                   # 基础层 — 零业务依赖的共享基础设施
+    │   ├── model/              # 共享数据类型（叶子包，无外部依赖）
+    │   │   ├── model.go
+    │   │   └── case.go
+    │   ├── util/               # 共享工具函数（仅依赖标准库）
+    │   │   └── util.go
+    │   └── contract/           # 核心接口定义（仅依赖 core/model + 标准库）
+    │       └── contract.go
+    ├── internal/               # 功能层 — 内部实现模块（Go internal 可见性限制）
+    │   ├── config/             # 配置加载与校验（使用 Viper）
+    │   │   ├── loader.go
+    │   │   ├── types.go
+    │   │   └── validator.go
+    │   ├── parser/             # .proto 文件解析
+    │   │   ├── parser.go
+    │   │   ├── scanner.go
+    │   │   └── types.go
+    │   ├── resolver/           # 类型引用与 import 依赖解析
+    │   │   ├── type.go
+    │   │   ├── dep.go
+    │   │   └── wellknown.go
+    │   ├── pruner/             # 定义裁剪与编排
+    │   │   ├── pruner.go
+    │   │   ├── defpruner.go
+    │   │   └── helpers.go
+    │   └── formatter/          # 输出格式化与清理
+    │       ├── sanitizer.go
+    │       ├── writer.go
+    │       └── transform.go
+    └── exporter/               # 编排层 — 顶层入口，组装所有模块
+        └── exporter.go
 ```
 
 ## 使用方式
@@ -75,10 +96,10 @@ bash scripts/build.sh
 |------|------|
 | [dependency-graph.md](dependency-graph.md) | 模块依赖图（Mermaid） |
 | [architecture.md](architecture.md) | 整体架构、数据流、依赖关系 |
-| [converter.md](converter.md) | converter 顶层包：Exporter、接口、类型别名 |
-| [model.md](model.md) | model 子包：共享数据类型和工具函数 |
-| [config.md](config.md) | config 子包：YAML 配置加载、校验、种子构建 |
-| [parser.md](parser.md) | parser 子包：.proto 文件解析 |
-| [resolver.md](resolver.md) | resolver 子包：类型引用解析和 import 依赖解析 |
-| [pruner.md](pruner.md) | pruner 子包：定义裁剪编排 |
-| [formatter.md](formatter.md) | formatter 子包：输出格式化与清理 |
+| [converter.md](converter.md) | exporter 编排层与 contract 接口契约 |
+| [model.md](model.md) | core/model 子包：共享数据类型和工具函数 |
+| [config.md](config.md) | internal/config 子包：配置加载（Viper）、校验、种子构建 |
+| [parser.md](parser.md) | internal/parser 子包：.proto 文件解析 |
+| [resolver.md](resolver.md) | internal/resolver 子包：类型引用解析和 import 依赖解析 |
+| [pruner.md](pruner.md) | internal/pruner 子包：定义裁剪编排 |
+| [formatter.md](formatter.md) | internal/formatter 子包：输出格式化与清理 |

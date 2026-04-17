@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
 )
 
 // ScanTopLevelBlocks scans proto source for all top-level message/enum definition blocks.

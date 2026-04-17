@@ -1,8 +1,10 @@
 # resolver 子包
 
-**包路径**: `converter/resolver`
+**包路径**: `converter/internal/resolver`
 
 **职责**: 处理两种解析任务：(1) 类型引用解析 — 将 proto 定义中的类型名解析到具体的定义位置；(2) import 依赖解析 — 从种子文件出发递归收集所有可达的 proto 文件。
+
+> 注意：该包位于 `internal/` 目录下，受 Go 语言 `internal` 可见性限制，仅允许 `converter/` 内部的包导入。实现 `core/contract.TypeResolver` 和 `core/contract.DepResolverIface` 接口。
 
 ## 文件列表
 
@@ -34,13 +36,17 @@
 
 **Resolve 解析优先级**:
 1. 跳过标量类型和 WellKnownTypes
-2. 在当前文件内按简单名查找
+2. 使用 `util.BaseName` 提取简单名，在当前文件内按简单名查找
 3. 尝试全限定名解析（`resolveTop`）：
    - 单段名：加当前包前缀查 fullIndex
    - 多段名：首段作为包名查 fullIndex
 4. 在 simpleIndex 中查找，仅当唯一匹配时返回
 
-**`BaseName` 辅助函数**: 从可能带包名前缀的 token 中提取简单名（如 `pkg.Foo` → `Foo`）。
+**依赖**: `converter/core/model`、`converter/core/util`、标准库。
+
+**`BaseName` 委托函数**: 保留了导出的 `BaseName` 函数作为向后兼容的委托，内部调用 `util.BaseName`。标记为 `Deprecated`，建议直接使用 `converter/core/util.BaseName`。
+
+> `BaseName` 的规范实现已迁移到 `converter/core/util/util.go`，从可能带包名前缀的 token 中提取简单名（如 `pkg.Foo` → `Foo`）。
 
 ### dep.go — import 依赖解析器
 

@@ -1,9 +1,9 @@
-package converter
+package contract
 
 import (
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
 )
 
 // Parser defines proto file parsing capabilities.

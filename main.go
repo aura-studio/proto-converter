@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aura-studio/proto-converter/converter"
+	"github.com/aura-studio/proto-converter/converter/exporter"
 )
 
 func main() {
@@ -30,7 +30,7 @@ func main() {
 		return
 	}
 
-	exp := &converter.Exporter{}
+	exp := &exporter.Exporter{}
 
 	exp.ConfigPath = configAbs
 	if err := exp.Run(); err != nil {

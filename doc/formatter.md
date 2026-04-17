@@ -1,14 +1,16 @@
 # formatter 子包
 
-**包路径**: `converter/formatter`
+**包路径**: `converter/internal/formatter`
 
 **职责**: 负责裁剪后 proto 文件的输出格式化和清理，包括注释移除、reserved 行移除、空行规范化、命名空间 option 写入、字段名转换和自包前缀移除。
+
+> 注意：该包位于 `internal/` 目录下，受 Go 语言 `internal` 可见性限制，仅允许 `converter/` 内部的包导入。实现 `core/contract.Formatter` 接口。
 
 ## 文件列表
 
 ### sanitizer.go — 输出清理主流程
 
-**本地接口**: `ScannerIface` — 仅包含 `ScanTopLevelBlocks` 方法，避免导入 converter 顶层包。
+**本地接口**: `ScannerIface` — 仅包含 `ScanTopLevelBlocks` 方法，用于扫描顶层块（在 `dropBlankLinesInsideTopBlocks` 中使用）。
 
 **`OutputFormatter` 结构体**:
 
@@ -37,6 +39,8 @@
 | `normalizeBlankLines(s) string` | 合并连续空行，去除尾部空行，确保以换行结尾 |
 | `tightenBlockBlankLines(s) string` | 移除 `{` 后和 `}` 前的多余空行 |
 | `dropBlankLinesInsideTopBlocks(s) string` | 扫描顶层块，移除块体内的空行（从后往前替换避免索引位移） |
+
+**依赖**: `converter/core/model`、标准库。
 
 ### writer.go — 命名空间 option 写入
 

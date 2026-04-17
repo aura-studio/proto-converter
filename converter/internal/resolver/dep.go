@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
 )
 
 var importRe = regexp.MustCompile(`(?m)^\s*import\s+\"([^\"]+)\"\s*;`)

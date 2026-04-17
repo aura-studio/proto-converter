@@ -1,16 +1,17 @@
-package converter
+package exporter
 
 import (
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/config"
-	"github.com/aura-studio/proto-converter/converter/formatter"
-	"github.com/aura-studio/proto-converter/converter/model"
-	"github.com/aura-studio/proto-converter/converter/parser"
-	"github.com/aura-studio/proto-converter/converter/pruner"
-	"github.com/aura-studio/proto-converter/converter/resolver"
+	"github.com/aura-studio/proto-converter/converter/core/contract"
+	"github.com/aura-studio/proto-converter/converter/core/model"
+	"github.com/aura-studio/proto-converter/converter/internal/config"
+	"github.com/aura-studio/proto-converter/converter/internal/formatter"
+	"github.com/aura-studio/proto-converter/converter/internal/parser"
+	"github.com/aura-studio/proto-converter/converter/internal/pruner"
+	"github.com/aura-studio/proto-converter/converter/internal/resolver"
 )
 
 // Exporter loads config, resolves dependencies, prunes, and writes proto outputs.
@@ -26,11 +27,11 @@ type Exporter struct {
 	DryRun        bool
 
 	// Optional dependency injection
-	parser       Parser
-	typeResolver TypeResolver
-	formatter    Formatter
-	defPruner    DefPruner
-	depResolver  DepResolverIface
+	parser       contract.Parser
+	typeResolver contract.TypeResolver
+	formatter    contract.Formatter
+	defPruner    contract.DefPruner
+	depResolver  contract.DepResolverIface
 }
 
 // ExporterOption configures an Exporter via functional options.
@@ -45,10 +46,12 @@ func NewExporter(opts ...ExporterOption) *Exporter {
 	return e
 }
 
-func WithParser(p Parser) ExporterOption             { return func(e *Exporter) { e.parser = p } }
-func WithTypeResolver(r TypeResolver) ExporterOption { return func(e *Exporter) { e.typeResolver = r } }
-func WithFormatter(f Formatter) ExporterOption       { return func(e *Exporter) { e.formatter = f } }
-func WithDefPruner(d DefPruner) ExporterOption       { return func(e *Exporter) { e.defPruner = d } }
+func WithParser(p contract.Parser) ExporterOption { return func(e *Exporter) { e.parser = p } }
+func WithTypeResolver(r contract.TypeResolver) ExporterOption {
+	return func(e *Exporter) { e.typeResolver = r }
+}
+func WithFormatter(f contract.Formatter) ExporterOption { return func(e *Exporter) { e.formatter = f } }
+func WithDefPruner(d contract.DefPruner) ExporterOption { return func(e *Exporter) { e.defPruner = d } }
 
 // Run executes export with the current Exporter settings.
 func (e *Exporter) Run() error {

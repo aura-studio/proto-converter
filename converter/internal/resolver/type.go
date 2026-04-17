@@ -3,7 +3,8 @@ package resolver
 import (
 	"strings"
 
-	"github.com/aura-studio/proto-converter/converter/model"
+	"github.com/aura-studio/proto-converter/converter/core/model"
+	"github.com/aura-studio/proto-converter/converter/core/util"
 )
 
 // TypeResolver resolves type references using indexed parsed proto files.
@@ -52,7 +53,7 @@ func (r *TypeResolver) Resolve(curFile, curPkg, token string) (model.DefRef, boo
 	if _, ok := WellKnownTypes[t]; ok {
 		return model.DefRef{}, false
 	}
-	base := BaseName(t)
+	base := util.BaseName(t)
 	if pf := r.parsed[curFile]; pf != nil {
 		for i := range pf.Defs {
 			if pf.Defs[i].Name == base {
@@ -101,14 +102,7 @@ func (r *TypeResolver) resolveTop(curPkg, token string) (string, bool) {
 	return "", false
 }
 
-// BaseName extracts the simple name from a possibly qualified type token.
+// Deprecated: BaseName delegates to util.BaseName. Use util.BaseName directly.
 func BaseName(tok string) string {
-	t := strings.TrimPrefix(strings.TrimSpace(tok), ".")
-	if t == "" {
-		return t
-	}
-	if i := strings.LastIndex(t, "."); i >= 0 {
-		return t[i+1:]
-	}
-	return t
+	return util.BaseName(tok)
 }
