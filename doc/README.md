@@ -31,7 +31,9 @@ proto-converter/
 │   ├── resolver.md             # internal/resolver 子包文档
 │   ├── pruner.md               # internal/pruner 子包文档
 │   ├── formatter.md            # internal/formatter 子包文档
-│   └── converter.md            # exporter 与 contract 子包文档
+│   ├── util.md                 # core/util 子包文档
+│   ├── contract.md             # core/contract 子包文档
+│   └── exporter.md             # exporter 编排层文档
 └── converter/                  # 核心代码（三级嵌套结构）
     ├── core/                   # 基础层 — 零业务依赖的共享基础设施
     │   ├── model/              # 共享数据类型（叶子包，无外部依赖）
@@ -96,10 +98,12 @@ bash scripts/build.sh
 |------|------|
 | [dependency-graph.md](dependency-graph.md) | 模块依赖图（Mermaid） |
 | [architecture.md](architecture.md) | 整体架构、数据流、依赖关系 |
-| [converter.md](converter.md) | exporter 编排层与 contract 接口契约 |
 | [model.md](model.md) | core/model 子包：共享数据类型和工具函数 |
+| [util.md](util.md) | core/util 子包：共享工具函数 |
+| [contract.md](contract.md) | core/contract 子包：核心接口定义 |
 | [config.md](config.md) | internal/config 子包：配置加载（Viper）、校验、种子构建 |
 | [parser.md](parser.md) | internal/parser 子包：.proto 文件解析 |
 | [resolver.md](resolver.md) | internal/resolver 子包：类型引用解析和 import 依赖解析 |
 | [pruner.md](pruner.md) | internal/pruner 子包：定义裁剪编排 |
 | [formatter.md](formatter.md) | internal/formatter 子包：输出格式化与清理 |
+| [exporter.md](exporter.md) | exporter 编排层：导出流程编排 |

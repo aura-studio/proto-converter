@@ -1,38 +1,10 @@
-# exporter 编排层与 contract 接口契约
-
-本文档涵盖两个关键包：`converter/exporter`（编排层）和 `converter/core/contract`（接口契约层）。
-
----
-
-## converter/core/contract — 接口契约包
-
-**包路径**: `converter/core/contract`
-
-**职责**: 集中定义所有核心接口，作为功能层各模块之间的契约。该包仅依赖 `core/model` 和标准库，是整个系统接口定义的唯一来源。
-
-### contract.go — 核心接口定义
-
-定义 5 个核心接口，所有方法签名使用 `core/model` 包的类型：
-
-| 接口 | 方法 | 默认实现 |
-|------|------|----------|
-| `Parser` | `ParseFile`, `ScanTopLevelBlocks`, `StripComments`, `ExtractTypeRefs` | `parser.ProtoParser` |
-| `TypeResolver` | `BuildIndex`, `Resolve` | `resolver.TypeResolver` |
-| `DepResolverIface` | `CollectWithImportsAndRoots` | `resolver.DepResolver` |
-| `Formatter` | `Sanitize`, `StripSelfPackageQualifiers`, `TransformFieldNames`, `WriteLangNamespaceOption` | `formatter.OutputFormatter` |
-| `DefPruner` | `PruneMessageFields`, `PruneOneofFields`, `CollectTypeTokens` | `pruner.DefinitionPruner` |
-
-> `DepResolverIface` 使用 `Iface` 后缀是为了避免与同名结构体 `DepResolver` 冲突。
-
-**设计决策**：将所有接口放在单个文件 `contract.go` 中，因为接口数量适中（5 个），且它们共同构成一个完整的契约集合。`pruner` 等功能层包直接引用 `contract` 包中的接口，不再本地重复定义。
-
----
-
-## converter/exporter — 导出流程编排
+# exporter 编排层
 
 **包路径**: `converter/exporter`
 
-**职责**: 作为项目的编排层，导入所有子包并通过 `Exporter` 编排整个裁剪导出流程。
+**职责**: 作为项目的编排层，导入所有子包并通过 `Exporter` 编排整个裁剪导出流程。是 `main.go` 唯一直接依赖的 converter 子包。
+
+## 文件列表
 
 ### exporter.go — 导出流程编排
 
@@ -73,7 +45,7 @@
 2. 加载配置：`config.Loader.Load` → `config.Validator.Validate` → `config.Validator.BuildSeedKeep`
 3. 将 `config.SeedItem` 转换为 `model.ProtoItem`
 4. 从配置填充 Exporter 字段（ExportDir、ImportDir、Language 等）
-5. 校验 Language 合法性
+5. 校验 Language 合法性（支持 `csharp`/`cs`/`c#`、`golang`/`go`、`lua`）
 6. 解析依赖：`resolver.DepResolver.CollectWithImportsAndRoots`
 7. 组装 `pruner.Pruner` 和 `model.PruneOptions`
 8. 执行裁剪：`pruner.Pruner.BuildPrunedTempProtos`
@@ -96,3 +68,15 @@ exp := &exporter.Exporter{}
 exp.ConfigPath = configAbs
 exp.Run()
 ```
+
+## 依赖
+
+该包是唯一的组装点，依赖所有子包：
+
+- `converter/core/contract` — 接口类型定义
+- `converter/core/model` — 共享数据类型（`ProtoItem`、`PruneOptions`）
+- `converter/internal/config` — 配置加载与校验
+- `converter/internal/parser` — proto 文件解析（默认实现）
+- `converter/internal/resolver` — 类型与依赖解析（默认实现）
+- `converter/internal/pruner` — 裁剪编排（默认实现）
+- `converter/internal/formatter` — 输出格式化（默认实现）
