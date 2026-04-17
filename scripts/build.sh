@@ -8,25 +8,17 @@ go mod tidy
 OUTPUT_DIR="build"
 mkdir -p "$OUTPUT_DIR"
 
-platforms=(
-  "darwin/amd64"
-  "darwin/arm64"
-  "linux/amd64"
-  "linux/arm64"
-  "windows/amd64"
-)
+GOOS="$(go env GOOS)"
+GOARCH="$(go env GOARCH)"
 
-for platform in "${platforms[@]}"; do
-  GOOS="${platform%/*}"
-  GOARCH="${platform#*/}"
-  output="$OUTPUT_DIR/proto-converter-${GOOS}-${GOARCH}"
-  if [ "$GOOS" = "windows" ]; then
-    output="${output}.exe"
-  fi
-  echo "== Build ${GOOS}/${GOARCH} =="
-  GOOS="$GOOS" GOARCH="$GOARCH" go build -o "$output" ./
-done
+output="$OUTPUT_DIR/proto-converter-${GOOS}-${GOARCH}"
+if [ "$GOOS" = "windows" ]; then
+  output="${output}.exe"
+fi
+
+echo "== Build ${GOOS}/${GOARCH} =="
+go build -o "$output" ./
 
 echo ""
 echo "Build complete:"
-ls -lh "$OUTPUT_DIR"/proto-converter-*
+ls -lh "$output"
